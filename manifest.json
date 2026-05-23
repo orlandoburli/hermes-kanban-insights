@@ -1,0 +1,14 @@
+{
+  "name": "hermes-kanban-insights",
+  "label": "Kanban Insights",
+  "description": "Token consumption, task duration by type, and per-profile breakdown — daily, weekly, monthly, and custom date ranges. Uses a pluggable cost adapter system.",
+  "icon": "BarChart3",
+  "version": "1.0.0",
+  "tab": {
+    "path": "/kanban-insights",
+    "position": "after:kanban"
+  },
+  "slots": [],
+  "entry": "dist/index.js",
+  "api": "plugin_api.py"
+}
