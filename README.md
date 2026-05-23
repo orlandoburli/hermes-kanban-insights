@@ -2,7 +2,7 @@
 
 Dashboard plugin for [Hermes Agent](https://hermes-agent.nousresearch.com) that shows **token consumption, task duration by type, and per-profile breakdown** from your kanban board.
 
-![](screenshot.png)
+![Kanban Insights](cover.png)
 
 ## Features
 
