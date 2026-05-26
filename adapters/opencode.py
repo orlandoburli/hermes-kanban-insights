@@ -11,7 +11,7 @@ import logging
 import os
 import sqlite3
 
-from adapters_base import CostAdapter, CostData
+from adapters_base import CostAdapter, CostData, DayCostData
 
 log = logging.getLogger(__name__)
 
@@ -59,3 +59,46 @@ class Adapter(CostAdapter):
         except Exception as e:
             log.warning("OpenCode adapter error: %s", e)
             return CostData(provider=self.name)
+
+    def fetch_daily(self, start_ms: int, end_ms: int) -> list[DayCostData]:
+        """Return per-day cost data grouped by UTC date from session.time_created."""
+        if not self.is_available():
+            return []
+
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA query_only = 1")
+
+            rows = conn.execute("""
+                SELECT
+                    date(time_created / 1000, 'unixepoch') AS day,
+                    ROUND(SUM(COALESCE(cost, 0)), 4) AS total_cost,
+                    SUM(COALESCE(tokens_input, 0)) AS total_input,
+                    SUM(COALESCE(tokens_output, 0)) AS total_output,
+                    SUM(COALESCE(tokens_cache_read, 0)) AS total_cache,
+                    COUNT(*) AS sessions
+                FROM session
+                WHERE time_created >= ?
+                  AND time_created < ?
+                  AND cost > 0
+                GROUP BY day
+                ORDER BY day
+            """, (start_ms, end_ms)).fetchall()
+
+            conn.close()
+
+            return [
+                DayCostData(
+                    day=r["day"],
+                    cost=float(r["total_cost"]) if r["total_cost"] else 0,
+                    input_tokens=int(r["total_input"]) if r["total_input"] else 0,
+                    output_tokens=int(r["total_output"]) if r["total_output"] else 0,
+                    cache_read_tokens=int(r["total_cache"]) if r["total_cache"] else 0,
+                    sessions=int(r["sessions"]) if r["sessions"] else 0,
+                )
+                for r in rows
+            ]
+        except Exception as e:
+            log.warning("OpenCode adapter fetch_daily error: %s", e)
+            return []

@@ -3,7 +3,7 @@
   "label": "Kanban Insights",
   "description": "Token consumption, task duration by type, and per-profile breakdown — daily, weekly, monthly, and custom date ranges. Uses a pluggable cost adapter system.",
   "icon": "BarChart3",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "tab": {
     "path": "/kanban-insights",
     "position": "after:kanban"

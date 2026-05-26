@@ -43,6 +43,22 @@ if os.path.exists(_adapter_init):
         _spec.loader.exec_module(_adapters_mod)
 import _usage_report_adapters as adapters  # type: ignore
 
+# DayCostData is registered by the adapter init as 'adapters_base' (top-level),
+# not 'adapters.adapters_base'. Import via the registered module path.
+try:
+    from adapters_base import DayCostData
+except ImportError:
+    # Fallback: define inline if adapter system isn't fully initialized
+    from dataclasses import dataclass
+    @dataclass
+    class DayCostData:
+        day: str = ""
+        cost: float = 0.0
+        input_tokens: int = 0
+        output_tokens: int = 0
+        cache_read_tokens: int = 0
+        sessions: int = 0
+
 log = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -495,18 +511,17 @@ def _get_profile_stats(cutoff_s: int, days: int) -> dict:
 def _get_daily_breakdown(cutoff_s: int, cutoff_ms: int, days: int, start: Optional[str] = None, end: Optional[str] = None) -> dict:
     """Per-day breakdown combining token costs and task activity.
 
-    Uses session-level aggregate cost from OpenCode (same source as
-    Token & Cost sections), distributed proportionally by task time
-    per day — consistent even when per-message data hasn't synced.
+    Uses real per-day cost data from OpenCode session table (GROUP BY date),
+    not proportional distribution by task duration. Days without OpenCode
+    data show $0 — truthful when the async flush hasn't caught up.
     """
     try:
-        # Aggregate cost from the first available adapter (same source
-        # as _get_token_breakdown — keeps daily chart consistent)
+        # Per-day costs from adapter (GROUP BY date in SQL)
         adapter = adapters.pick_adapter()
-        cost = adapter.fetch(cutoff_ms, 9999999999999) if adapter else adapters.CostData()
-
-        total_cost = cost.total_cost
-        total_input = cost.total_input_tokens
+        daily_costs: dict[str, DayCostData] = {}
+        if adapter:
+            for dc in adapter.fetch_daily(cutoff_ms, 9999999999999):
+                daily_costs[dc.day] = dc
 
         # Task duration per day from kanban
         conn2 = _kanban_db()
@@ -545,8 +560,6 @@ def _get_daily_breakdown(cutoff_s: int, cutoff_ms: int, days: int, start: Option
                 day_profiles[d] = {}
             day_profiles[d][r["profile"]] = day_profiles[d].get(r["profile"], 0) + r["runs"]
 
-        total_task_duration = sum(day_durations.values())
-
         # Determine date range
         today = datetime.now(timezone.utc).date()
         if start and end:
@@ -566,13 +579,13 @@ def _get_daily_breakdown(cutoff_s: int, cutoff_ms: int, days: int, start: Option
         days_list = []
         for i in range(total_period):
             d = (fill_start + timedelta(days=i)).isoformat()
-            day_dur = day_durations.get(d, 0)
-            fraction = day_dur / total_task_duration if total_task_duration > 0 else 1.0 / total_period
+            dc = daily_costs.get(d)
             dr = day_runs.get(d, {"runs": 0, "completed": 0, "blocked": 0})
             days_list.append({
                 "day": d,
-                "cost": round(total_cost * fraction, 4),
-                "input_tokens": int(total_input * fraction),
+                "cost": round(dc.cost, 4) if dc else 0.0,
+                "input_tokens": dc.input_tokens if dc else 0,
+                "output_tokens": dc.output_tokens if dc else 0,
                 "task_runs": dr["runs"],
                 "task_completed": dr["completed"],
                 "task_blocked": dr["blocked"],
